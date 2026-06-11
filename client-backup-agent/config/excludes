@@ -1,0 +1,29 @@
+# =============================================================================
+# Restic Global Exclusion Rules
+# =============================================================================
+# Applied across all backup profiles. Prevents pseudo-filesystems, transient
+# runtime data, and large build artifact trees from being snapshotted.
+# Pattern syntax follows restic --exclude-file specification.
+# =============================================================================
+
+# --- Kernel Virtual Filesystems ----------------------------------------------
+/proc/*
+/sys/*
+/dev/*
+/run/*
+
+# --- Temporary & Volatile Directories ----------------------------------------
+/tmp/*
+/var/tmp/backup_stage/*
+
+# --- Build Artifact & Dependency Trees (language-agnostic) ------------------
+**/.cache
+**/node_modules
+**/bower_components
+**/Cache
+**/caches
+
+# --- Docker Internal Storage Layers ------------------------------------------
+# Volume data is backed up via /var/lib/docker/volumes; these dirs are not needed
+/var/lib/docker/overlay2/*
+/var/lib/docker/containers/*

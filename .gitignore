@@ -1,0 +1,16 @@
+# Ignore local configuration and sensitive secrets
+**/.env
+.env
+
+# System / OS files
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local build / restore logs
+**/*.log

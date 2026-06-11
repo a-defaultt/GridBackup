@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=https://creativeprojects.github.io/resticprofile/jsonschema/config-2.json
+# =============================================================================
+# Resticprofile Orchestration Blueprint — v2
+# =============================================================================
+# Profiles: base (shared), local (fast on-disk), cloud (S3 immutable vault)
+# All secrets are injected at runtime via /etc/resticprofile/.env
+# =============================================================================
+version: "2"
+
+global:
+  # Reduce I/O scheduling priority to avoid starving application workloads
+  ionice: true
+  ionice-class: 2        # Best-effort class
+  ionice-level: 6        # Lowest priority within best-effort
+  # Reduce CPU scheduling priority
+  nice: 10
+  # Enable automatic compression across all profiles
+  restic-arguments: "--compression auto"
+
+profiles:
+
+  # ---------------------------------------------------------------------------
+  # base — Universal Shared Parameter Configuration
+  # Inherited by all concrete profiles; never invoked directly.
+  # ---------------------------------------------------------------------------
+  base:
+    password-env: "RESTIC_PASSWORD"
+
+    env:
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+
+    # Lifecycle hook scripts executed around every backup run
+    run-before: "bash /etc/resticprofile/scripts/pre-backup.sh"
+    run-after: "bash /etc/resticprofile/scripts/post-backup.sh success"
+    run-after-fail: "bash /etc/resticprofile/scripts/post-backup.sh failure"
+
+    backup:
+      source:
+        - "/var/lib/docker/volumes"   # Named Docker volume data
+        - "/opt"                       # Application installations
+        - "/etc"                       # System & service configuration
+        - "${TEMPORARY_DUMP_DIR}"      # Database logical dumps staged by pre-backup.sh
+      exclude-file:
+        - "/etc/resticprofile/excludes"
+      exclude-caches: true             # Honour CACHEDIR.TAG markers
+      one-file-system: true            # Do not cross filesystem mount boundaries
+      tag:
+        - "automated-system-backup"
+
+  # ---------------------------------------------------------------------------
+  # local — Fast Local Storage Profile
+  # Daily snapshot to on-disk path; aggressive retention for quick recovery.
+  # ---------------------------------------------------------------------------
+  local:
+    inherit: "base"
+    repository: "local:${LOCAL_REPO_PATH}"
+
+    retention:
+      before-backup: false
+      after-backup: true
+      keep-daily: 14       # Two weeks of daily snapshots
+      keep-weekly: 4       # Four weeks of weekly snapshots
+      keep-monthly: 12     # One year of monthly snapshots
+      prune: true          # Remove unreferenced pack files immediately
+
+    check:
+      read-data-subset: "5%"   # Stochastic integrity verification on 5% of data per run
+
+  # ---------------------------------------------------------------------------
+  # cloud — Ransomware-Proof Remote S3 Immutable Vault
+  # Uploaded to object-locked S3 bucket; lighter retention for cost control.
+  # ---------------------------------------------------------------------------
+  cloud:
+    inherit: "base"
+    repository: "${REMOTE_S3_REPO}"
+
+    retention:
+      before-backup: false
+      after-backup: true
+      keep-daily: 7        # One week of daily cloud snapshots
+      keep-weekly: 4       # Four weeks of weekly cloud snapshots
+      keep-monthly: 2      # Two months of monthly cloud snapshots
+      prune: true

@@ -1,0 +1,19 @@
+# =============================================================================
+# .gitignore — client-backup-agent
+# =============================================================================
+
+# NEVER commit the populated secrets file
+.env
+
+# macOS metadata
+.DS_Store
+
+# Editor artefacts
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Temporary files
+*.bak
+*.tmp
