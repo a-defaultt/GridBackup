@@ -201,8 +201,8 @@ After installation, the agent's runtime configuration lives at:
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/your-org/client-backup-agent.git
-cd client-backup-agent
+git clone https://github.com/a-defaultt/GridBackup.git
+cd GridBackup
 ```
 
 ### Step 2 — Create your `.env` file
