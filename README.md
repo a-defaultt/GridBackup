@@ -687,30 +687,26 @@ resticprofile --config /etc/resticprofile/profiles.yaml --name local check --rea
 
 ### Run the Interactive Recovery Wizard
 
-The `agent-restore` wizard guides you through the complete recovery process step-by-step. Always run a dry-run first.
+The `agent-restore` wizard guides you through the complete recovery process step-by-step. It now includes **Atomic Rollback Protection**, automatically creating a `pre-restore-checkpoint` before modifying sensitive system paths.
 
 ```bash
 # Launch the interactive recovery wizard
 sudo agent-restore
 ```
 
-The wizard will prompt you through:
-1. Choosing a repository (`local` or `cloud`)
-2. Selecting a snapshot ID (or `latest`)
-3. Setting the restore destination path
-4. Running a dry-run preview
-5. Optionally stopping running containers
-6. Executing the restore
-7. Reinjecting database dumps with your chosen conflict resolution mode
+### Smart Direct Restoration (Elevated)
 
-> [!TIP]
-> For a quick, non-interactive file restore, use resticprofile directly:
-> ```bash
-> resticprofile --config /etc/resticprofile/profiles.yaml \
->               --name local restore latest \
->               --include /etc/nginx \
->               --target /var/tmp/restore_stage
-> ```
+You can now point the Recovery Engine directly at an SQL dump file for intelligent re-insertion.
+
+```bash
+# Directly restore a database dump into a running container
+sudo agent-restore --file /path/to/my_database.sql
+```
+
+The engine will:
+1. **Auto-Detect** the database type (PostgreSQL or MySQL/MariaDB).
+2. **Smart Map** potential target containers.
+3. **Handle Conflicts** with `TIMESTAMP_COPY` (safe) or `OVERWRITE` (destructive) modes.
 
 ---
 
