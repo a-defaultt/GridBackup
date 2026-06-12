@@ -796,7 +796,34 @@ Ensure the backup service runs as `root` (confirmed in the unit file via `User=r
 
 ---
 
-## 15. Glossary
+## 16. Uninstallation
+
+To remove the agent and associated systemd services from the host:
+
+```bash
+# Standard uninstall (keeps /etc/resticprofile/.env)
+sudo ./uninstall.sh
+
+# Purge uninstall (removes /etc/resticprofile/ directory, including .env)
+sudo ./uninstall.sh --purge
+```
+
+The uninstaller stops services, removes timers and systemd units, deletes binary aliases, and cleans up staging directories.
+
+---
+
+## 17. Monitoring & Telemetry
+
+GridBackup provides rich status reporting via ntfy.sh and uptime monitoring via Healthchecks.io.
+
+- **Status Notifications**: Every backup run triggers a post-backup hook that sends a summary to your ntfy.sh topic.
+- **Success Details**: Includes Profile Name, Repository Path, Snapshot ID, and completion timestamp.
+- **Failure Alerts**: High-priority (Priority 5) alerts are dispatched immediately if a backup pipeline fails, including profile name, exit code, and error count.
+- **Uptime Heartbeats**: Healthchecks.io is pinged on both success (`/`) and failure (`/fail`) to ensure you are alerted if a scheduled job never executes.
+
+---
+
+## 18. Glossary
 
 | Term | Definition |
 |---|---|

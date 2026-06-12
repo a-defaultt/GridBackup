@@ -1,85 +1,71 @@
 #!/usr/bin/env bash
 # =============================================================================
-# post-backup.sh — Telemetry Routing, Notifications & Cleanup
+# post-backup.sh — Rich Telemetry Routing & Notifications
 # =============================================================================
-# Executed by resticprofile's run-after and run-after-fail hooks.
-#
-# Usage:
-#   post-backup.sh success    # Called via run-after on clean backup completion
-#   post-backup.sh failure    # Called via run-after-fail on any pipeline error
-#
-# Responsibilities:
-#   1. Import runtime environment variables from /etc/resticprofile/.env
-#   2. Ping Healthchecks.io (pass or fail signal) for uptime monitoring
-#   3. Push a human-readable notification to the ntfy.sh webhook channel
-#   4. Safely wipe transient database dump files from the staging directory
-#
-# Exit codes:
-#   0  — Post-backup procedures completed (notification failures are non-fatal)
+# Upgraded for headless automation and deep status reporting.
 # =============================================================================
 set -euo pipefail
 
-# -----------------------------------------------------------------------------
 # 0. Import Environment Directives
-# -----------------------------------------------------------------------------
 if [ -f /etc/resticprofile/.env ]; then
     # shellcheck disable=SC2046
     export $(grep -v '^#' /etc/resticprofile/.env | xargs)
 fi
 
-STATUS="${1:-failure}"
+# Captured from resticprofile environment
+PROFILE="${RESTICPROFILE_NAME:-unknown}"
+EXIT_CODE="${PROFILE_COMMAND_EXIT_CODE:-0}"
+ERROR_COUNT="${PROFILE_ERROR_COUNT:-0}"
+REPO="${RESTIC_REPOSITORY:-unknown}"
 TIMESTAMP="[$(date +'%Y-%m-%d %H:%M:%S')]"
 
-# -----------------------------------------------------------------------------
-# 1. Route on backup outcome
-# -----------------------------------------------------------------------------
-if [ "$STATUS" == "success" ]; then
-    echo "${TIMESTAMP} Backup executed successfully. Dispatching telemetry pings."
+# 1. Failure Detection Gate
+if [ "$EXIT_CODE" -ne 0 ] || [ "$ERROR_COUNT" -gt 0 ]; then
+    echo "${TIMESTAMP} CRITICAL: Profile [${PROFILE}] reported failure (Exit: ${EXIT_CODE}, Errors: ${ERROR_COUNT})" >&2
 
-    # --- Healthchecks.io: success ping ---------------------------------------
-    curl -fsS --retry 3 "${HEALTHCHECKS_IO_URL}" || \
-        echo "WARNING: Healthchecks.io success ping failed (non-fatal)." >&2
+    # Ping Healthchecks.io Failure
+    curl -fsS --retry 3 "${HEALTHCHECKS_IO_URL}/fail" || true
 
-    # --- ntfy.sh: success notification ---------------------------------------
+    # Dispatch High-Priority Notification (Priority 5)
     curl -s \
-         -H "Title: Backup Successful — ${CLIENT_NAME}" \
-         -H "Priority: default" \
-         -H "Tags: white_check_mark,automated" \
-         -d "Host [${HOST_IDENTIFIER}] completed backup to local and cloud \
-repositories successfully at $(date +'%Y-%m-%d %H:%M %Z')." \
-         "${NOTIFY_WEBHOOK_URL}" || \
-        echo "WARNING: ntfy.sh success notification failed (non-fatal)." >&2
-
+         -H "Title: BACKUP FAILED - ${CLIENT_NAME}" \
+         -H "Priority: 5" \
+         -d "Host [${HOST_IDENTIFIER}] backup pipeline reported a failure.
+Status: FAILED
+Profile: ${PROFILE}
+Exit Code: ${EXIT_CODE}
+Errors: ${ERROR_COUNT}
+Time: $(date +'%Y-%m-%d %H:%M %Z')" \
+         "${NOTIFY_WEBHOOK_URL}" || true
 else
-    echo "${TIMESTAMP} CRITICAL ERROR: Backup pipeline reported an operational failure." >&2
+    # 2. Success Path — Metadata Extraction
+    echo "${TIMESTAMP} SUCCESS: Profile [${PROFILE}] completed cleanly."
 
-    # --- Healthchecks.io: failure signal -------------------------------------
-    curl -fsS --retry 3 "${HEALTHCHECKS_IO_URL}/fail" || \
-        echo "WARNING: Healthchecks.io failure signal failed (non-fatal)." >&2
+    # Ping Healthchecks.io Success
+    curl -fsS --retry 3 "${HEALTHCHECKS_IO_URL}" || true
 
-    # --- ntfy.sh: critical failure alert -------------------------------------
+    # Race Condition Guard — allow engine to release locks
+    sleep 3
+
+    # Extract Metadata
+    SNAPSHOT_ID=$(resticprofile --config /etc/resticprofile/profiles.yaml --name "$PROFILE" snapshots --latest 1 --json | jq -r '.[0].short_id // "unknown"')
+    COMPLETION_TIME=$(date +'%Y-%m-%d %H:%M %Z')
+
+    # Dispatch Rich Telemetry Notification
     curl -s \
-         -H "Title: BACKUP CRITICAL FAILURE — ${CLIENT_NAME}" \
-         -H "Priority: max" \
-         -H "Tags: x,skull,fire" \
-         -d "Host [${HOST_IDENTIFIER}] backup pipeline failed at \
-$(date +'%Y-%m-%d %H:%M %Z'). \
-Review logs immediately:
-  journalctl -u resticprofile-backup@local.service -n 100 --no-pager
-  journalctl -u resticprofile-backup@cloud.service -n 100 --no-pager" \
-         "${NOTIFY_WEBHOOK_URL}" || \
-        echo "WARNING: ntfy.sh failure notification failed (non-fatal)." >&2
+         -H "Title: Backup Successful - ${CLIENT_NAME}" \
+         -H "Priority: default" \
+         -d "Host [${HOST_IDENTIFIER}] completed a scheduled backup.
+Status: SUCCESS
+Profile: ${PROFILE}
+Repository: ${REPO}
+Snapshot ID: ${SNAPSHOT_ID}
+Duration: See systemd logs for exact timing
+Completed At: ${COMPLETION_TIME}" \
+         "${NOTIFY_WEBHOOK_URL}" || true
 fi
 
-# -----------------------------------------------------------------------------
-# 2. Wipe Transient Staging Area
-# -----------------------------------------------------------------------------
-# The :? guard prevents accidental deletion if the variable is unset or empty
+# 3. Wipe Staging Area (Always Cleanup)
 if [ -n "${TEMPORARY_DUMP_DIR:-}" ]; then
     rm -rf "${TEMPORARY_DUMP_DIR:?}"/*
-    echo "${TIMESTAMP} Staging directory cleared: ${TEMPORARY_DUMP_DIR}"
-else
-    echo "WARNING: TEMPORARY_DUMP_DIR is not set; skipping cleanup." >&2
 fi
-
-echo "${TIMESTAMP} Post-backup procedures completed with status: ${STATUS}"
